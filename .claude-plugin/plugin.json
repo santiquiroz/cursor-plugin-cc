@@ -1,0 +1,10 @@
+{
+  "name": "cursor",
+  "version": "0.1.0",
+  "description": "Delegate coding tasks from Claude Code to Cursor Agent CLI (cursor-agent) in headless mode — an extra agentic lane on Cursor's own quota, with a read-only ask mode for second opinions.",
+  "author": {
+    "name": "Santiago Quiroz Upegui"
+  },
+  "repository": "https://github.com/santiquiroz/cursor-plugin-cc",
+  "license": "MIT"
+}

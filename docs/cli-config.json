@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "permissions": {
+    "allow": [],
+    "deny": [
+      "Shell(git push)",
+      "Shell(git reset)",
+      "Shell(git clean)",
+      "Shell(git checkout)",
+      "Shell(git switch)",
+      "Shell(git restore)",
+      "Shell(git stash)",
+      "Shell(git rebase)",
+      "Shell(git commit)",
+      "Shell(git rm)",
+      "Shell(git worktree)",
+      "Shell(git config)",
+      "Shell(git -C)",
+      "Shell(git -c)",
+      "Shell(git --git-dir)",
+      "Shell(git --work-tree)",
+      "Shell(rm)",
+      "Shell(rmdir)",
+      "Shell(del)",
+      "Shell(erase)",
+      "Shell(rd)",
+      "Shell(ri)",
+      "Shell(Remove-Item)",
+      "Shell(bash)",
+      "Shell(sh)",
+      "Shell(zsh)",
+      "Shell(fish)",
+      "Shell(dash)",
+      "Shell(powershell)",
+      "Shell(pwsh)",
+      "Shell(cmd)",
+      "Shell(wsl)",
+      "Shell(env)",
+      "Shell(xargs)",
+      "Shell(Start-Process)",
+      "Shell(sudo)",
+      "Shell(runas)",
+      "Shell(claude)",
+      "Shell(codex)",
+      "Shell(copilot)",
+      "Shell(agy)",
+      "Shell(gemini)",
+      "Shell(ollama)",
+      "Shell(cursor-agent)",
+      "Shell(agent)",
+      "Write(**/.git/**)"
+    ]
+  },
+  "approvalMode": "allowlist",
+  "autoAcceptWebSearch": false,
+  "sandbox": {
+    "mode": "disabled"
+  },
+  "attribution": {
+    "attributeCommitsToAgent": false,
+    "attributePRsToAgent": false
+  }
+}

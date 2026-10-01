@@ -1,0 +1,21 @@
+{
+  "name": "cursor-plugin-cc",
+  "owner": {
+    "name": "santiquiroz"
+  },
+  "metadata": {
+    "description": "Cursor plugin for Claude Code: delegate coding tasks to Cursor Agent CLI (cursor-agent) headless.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "cursor",
+      "description": "Delegate coding tasks from Claude Code to Cursor Agent CLI (cursor-agent) in headless mode — an extra agentic lane on Cursor's own quota, with a read-only ask mode for second opinions.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Santiago Quiroz Upegui"
+      },
+      "source": "./"
+    }
+  ]
+}
