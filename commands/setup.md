@@ -6,88 +6,75 @@ allowed-tools: Bash, Read, Edit, Write, AskUserQuestion
 
 Run these steps in order and finish with one consolidated status block. Never print token, API key or credential values.
 
-Step 1 — Locate the CLI
+`FORWARD` below means `bash "${CLAUDE_PLUGIN_ROOT}/scripts/cursor-forward.sh"` — the same script the `cursor-rescue` subagent runs, so setup checks exactly what delegation will hit.
+
+Step 1 — Probe
 
 ```bash
-CA_ROOT="${LOCALAPPDATA//\\//}/cursor-agent"
-VER=$(ls -d "$CA_ROOT"/versions/*/ 2>/dev/null | sort -V | tail -1)
-if [ -n "$VER" ] && [ -f "${VER}node.exe" ]; then echo "windows bundle: ${VER}node.exe ${VER}index.js"
-elif command -v cursor-agent >/dev/null 2>&1; then echo "on PATH: $(command -v cursor-agent)"
-elif [ -x "$HOME/.local/bin/cursor-agent" ]; then echo "found: $HOME/.local/bin/cursor-agent"
-else echo "NOT FOUND"; fi
+FORWARD preflight
 ```
 
-- Not found → use `AskUserQuestion` exactly once with two options: `Install Cursor Agent CLI (Recommended)` and `Skip for now`. Install commands: Windows PowerShell `irm 'https://cursor.com/install?win32=true' | iex`; macOS/Linux/WSL `curl https://cursor.com/install -fsS | bash`. Rerun Step 1 afterwards. If the user skips, jump to the report.
-- On Windows the subagent calls the bundled `node.exe` with `index.js` directly instead of the `cursor-agent.cmd` shim: a `.cmd` shim passes arguments through `cmd.exe`, which cuts a multi-line prompt at its first line break and re-parses quotes (verified). Nothing to fix here; just report which launcher was found.
+Read the exit code and act, then rerun Step 1 after any fix (at most three times in total):
 
-In the steps below, `CA` means that launcher: `"${VER}node.exe" "${VER}index.js"` on Windows, otherwise `cursor-agent`.
+- **127** (`cursor-agent not found`) → use `AskUserQuestion` exactly once: `Install Cursor Agent CLI (Recommended)` / `Skip for now`. Install commands: Windows PowerShell `irm 'https://cursor.com/install?win32=true' | iex`; macOS/Linux/WSL `curl https://cursor.com/install -fsS | bash`. If the user skips, jump to the report. On Windows the script calls the bundled `node.exe` + `index.js` under `%LOCALAPPDATA%\cursor-agent\versions\` (newest first) instead of the `cursor-agent.cmd` shim, which passes arguments through `cmd.exe` and cuts a multi-line prompt at its first line break.
+- **78** (`missing deny rules`) → Step 2.
+- **70** (`not signed in`) → tell the user to sign in once with `cursor-agent login` (browser flow; on Windows run it from PowerShell or cmd, where the shim is fine for this), or to export a Cursor API key as `CURSOR_API_KEY`. Then rerun `/cursor:setup`.
+- **0** → note the `CLI <version>, plan <tier>` line and continue with Step 3.
 
-Step 2 — Version
+Step 2 — Plugin-owned config dir (the safety net)
+
+Every delegated run sets `CURSOR_CONFIG_DIR=$HOME/.cursor-rescue`, so `cursor-agent` reads `cli-config.json` from there instead of `~/.cursor/cli-config.json`. Two effects: the deny rules apply to delegated runs only (interactive Cursor sessions keep the user's settings), and a `--model` passed to a delegated run is remembered only there — `cursor-agent` saves the last `--model` as the default of the config dir it runs with (verified: a named model left in the user-level config breaks every later run on the Free plan).
+
+Read `$HOME/.cursor-rescue/cli-config.json` (it may not exist) and compare `permissions.deny` with `${CLAUDE_PLUGIN_ROOT}/docs/cli-config.json`:
+
+- Missing → create the directory and copy the template as is. No question needed: the directory belongs to this plugin.
+- Present but missing rules → add only the missing `permissions.deny` entries, keep every other key and rule untouched, write valid JSON.
+
+Then rerun Step 1.
+
+Step 3 — Version
+
+Floor: **2026.09.26** (verified on 2026.09.26 and 2026.09.28). Older → suggest `cursor-agent update`. The CLI also updates itself into a new `versions/` directory; the script always picks the newest one.
+
+Step 4 — Claude Code plugins inside Cursor (Windows)
+
+`cursor-agent` imports the user's Claude Code setup on its own: the plugins in `~/.claude/plugins/installed_plugins.json` with their hooks, skills and agents, `~/.claude/skills`, `~/.claude/agents`, and permission rules from `~/.claude/settings.json`. On Windows it runs imported hook commands through PowerShell, so a hook written for bash fails, and a failing `PreToolUse` hook blocks the tool call (verified with claude-mem: every file write and read was rejected with `Hook blocked with message: ... syntax error near unexpected token`).
+
+Check whether this machine is exposed:
 
 ```bash
-CURSOR_CONFIG_DIR="$HOME/.cursor-rescue" <CA> about </dev/null
+python - <<'PY' 2>/dev/null || echo "python not available: look for hooks/*.json under the installPath of each plugin in ~/.claude/plugins/installed_plugins.json"
+import json, os, glob
+data = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json"), encoding="utf-8")).get("plugins", {})
+for name, entries in data.items():
+    for entry in (entries if isinstance(entries, list) else [entries]):
+        if glob.glob(os.path.join(entry.get("installPath", ""), "hooks", "*.json")):
+            print("plugin with hooks:", name)
+PY
 ```
 
-`about` answers locally plus one account lookup — no agent turn, no quota spent. Report `CLI Version` and `Latest`. Floor: **2026.09.26** (verified on 2026.09.26 and 2026.09.28). Older → suggest `cursor-agent update` and continue. The CLI also updates itself into a new `versions/` directory; the subagent always picks the newest one.
-
-Step 3 — Authentication
-
-From the same `about` output:
-
-- `User Email` shows an address → signed in. Report the `Subscription Tier`.
-- `User Email  Not logged in` and no `CURSOR_API_KEY` in the environment → tell the user to sign in once: `cursor-agent login` (browser flow; on Windows run it from PowerShell or cmd, where the shim works fine for this). A Cursor API key in `CURSOR_API_KEY` works too. Then rerun `/cursor:setup`.
-
-Step 4 — Plugin-owned config dir (the safety net)
-
-Every delegated run sets `CURSOR_CONFIG_DIR=$HOME/.cursor-rescue`, so `cursor-agent` reads its `cli-config.json` from there instead of `~/.cursor/cli-config.json`. Two effects: the deny rules below apply to delegated runs only (your interactive Cursor sessions keep your own settings), and a `--model` passed to a delegated run is remembered only there (`cursor-agent` persists the last `--model` as the default model of whatever config dir it uses — verified).
-
-Read `$HOME/.cursor-rescue/cli-config.json` (it may not exist yet) and compare `permissions.deny` with `${CLAUDE_PLUGIN_ROOT}/docs/cli-config.json`.
-
-- File missing → create the directory and copy the template there as is. No question needed: the directory belongs to this plugin.
-- File present but missing rules → add only the missing `permissions.deny` entries, keep every other key and rule untouched, write valid JSON.
+- Windows and at least one plugin with hooks → write `on` to `$HOME/.cursor-rescue/isolate` and say why in one sentence. Isolated runs set `CURSOR_RESCUE_FAKE_HOME`, and `scripts/cursor-preload.js` (loaded into Cursor's own Node process with `node --require`) then makes `os.homedir()` return `$HOME/.cursor-rescue/home`, so Cursor no longer finds `~/.claude` (nor the user's `~/.cursor` chats and MCP servers). Environment variables are untouched, so the commands the delegate runs keep the real `USERPROFILE`, `HOME` and `APPDATA` — git, SSH, NuGet, npm and the sign-in (`%APPDATA%\Cursor\auth.json`) keep working (verified).
+- No plugins with hooks, or not Windows → write `off`. On macOS/Linux hooks run under bash as intended, and the preload needs the Windows `node.exe` bundle anyway.
+- On Windows the caller can override per run with `--isolate` / `--no-isolate`.
 
 Step 5 — Verify the deny rules bite (spends one agent request)
 
 Ask once with `AskUserQuestion`: `Run the deny probe (Recommended)` / `Skip`. On the Free plan every agent request counts against the monthly allowance. If run:
 
 ```bash
-cd "$(mktemp -d)" && git init -q && \
-CURSOR_CONFIG_DIR="$HOME/.cursor-rescue" MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0 timeout 300 <CA> -p "Run exactly this shell command and print its output: git push --dry-run origin HEAD. If it is blocked, reply BLOCKED and quote the reason." --output-format text --trust --workspace "$(pwd -W 2>/dev/null || pwd)" --force --model auto </dev/null
+cd "$(mktemp -d)" && git init -q && printf '%s\n' 'Run exactly this shell command and print its output: git push --dry-run origin HEAD. If it is blocked, reply BLOCKED and quote the reason.' | FORWARD run --model auto
 ```
 
-Expected: `BLOCKED` with `Command blocked by permissions configuration`. Anything else → report that the deny rules are not being applied and stop recommending delegation until fixed.
+Expected: a `  x shell: Command blocked by permissions configuration: git push ...` line or a `BLOCKED` answer quoting that reason. Anything else → report that the deny rules are not being applied and stop recommending delegation until fixed.
 
-Step 6 — Claude Code plugins inside Cursor (Windows)
-
-`cursor-agent` imports the user's Claude Code setup on its own: plugins listed in `~/.claude/plugins/installed_plugins.json` (with their hooks, skills and agents), `~/.claude/skills`, `~/.claude/agents`, and permission rules from `~/.claude/settings.json`. On Windows it runs imported hook commands through PowerShell, so a hook written for bash fails — and a failing `PreToolUse` hook blocks the tool call (verified with the claude-mem plugin: every file write and read was rejected with `Hook blocked with message: ... syntax error near unexpected token`).
-
-Check whether this machine is exposed:
+Step 6 — Models
 
 ```bash
-python - <<'PY' 2>/dev/null || node -e "console.log('python not available; check ~/.claude/plugins/installed_plugins.json by hand')"
-import json, os, glob
-p = os.path.expanduser("~/.claude/plugins/installed_plugins.json")
-data = json.load(open(p, encoding="utf-8")).get("plugins", {})
-for name, entries in data.items():
-    for e in (entries if isinstance(entries, list) else [entries]):
-        path = e.get("installPath", "")
-        if glob.glob(os.path.join(path, "hooks", "*.json")):
-            print("plugin with hooks:", name)
-PY
+FORWARD models
 ```
 
-- Windows and at least one plugin with hooks → write the word `on` to `$HOME/.cursor-rescue/isolate` and say why in one sentence. Isolated runs load a three-line preload into Cursor's own Node process that makes `os.homedir()` return `$HOME/.cursor-rescue/home`, so Cursor no longer finds `~/.claude` (nor `~/.cursor` chats and MCP servers). Environment variables are untouched, so the commands the delegate runs keep the real `USERPROFILE`, `HOME` and `APPDATA` — git, SSH, NuGet, npm and the sign-in (`%APPDATA%\Cursor\auth.json`) keep working (verified).
-- No plugins with hooks, or not Windows → write `off`. On macOS/Linux the hooks run under bash as intended, and the preload is not used there: the launcher is a shell script the subagent cannot add `--require` to, and the sign-in path derives from the home directory.
-- On Windows the caller can override per run with `--isolate` / `--no-isolate`; elsewhere the flags are ignored.
+Report the plan from Step 1 and how many models are listed. **Free plan: only `auto` runs** — any named model fails with `ActionRequiredError: Named models unavailable Free plans can only use Auto` (verified); the script switches to `auto` on its own. Paid plans can pass any listed slug with `--model <slug>`.
 
-Step 7 — Models
+Step 7 — Consolidated report
 
-```bash
-CURSOR_CONFIG_DIR="$HOME/.cursor-rescue" <CA> models </dev/null
-```
-
-Report the tier from Step 3 and how many models are listed. **Free plan: only `auto` runs** — any named model fails with `ActionRequiredError: Named models unavailable Free plans can only use Auto` (verified); the subagent always passes `--model auto` there. Paid plans can pass any listed slug with `--model <slug>`.
-
-Step 8 — Consolidated report
-
-One short block: launcher, CLI version vs floor and latest, sign-in state and tier, config dir and deny-rule state with the Step 5 result, isolation state and why, models available, and how to delegate (`/cursor:rescue <task>`, `/cursor:rescue --read-only <review task>`, or let the `cursor-rescue` subagent fire proactively).
+One short block: launcher and CLI version vs floor, sign-in state and plan, config dir and deny-rule state with the Step 5 result, isolation state and why, models available, and how to delegate (`/cursor:rescue <task>`, `/cursor:rescue --read-only <review task with the diff pasted>`, or let the `cursor-rescue` subagent fire proactively).

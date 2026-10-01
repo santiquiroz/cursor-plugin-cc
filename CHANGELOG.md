@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0 — 2026-09-30
+
+- Move every deterministic step out of the subagent prompt into
+  `scripts/cursor-forward.sh` (`preflight`, `run`, `models`), the pattern the
+  sibling plugins use: the subagent no longer assembles a hundred lines of
+  bash per call. The progress filter and the Windows isolation preload are
+  plain files under `scripts/`.
+- The task travels on stdin through a heredoc whose delimiter carries a fresh
+  random suffix per call; a task line equal to a fixed delimiter would close
+  the heredoc early and run the rest of the task as shell commands.
+- `run` warns when the delegate moved `HEAD`, switched branch, changed the
+  stash list, the git config or the hooks, and refuses tasks over 30000
+  characters (the Windows command-line limit) before anything runs.
+- The deny gate checks a dozen critical rules by name instead of the mere
+  presence of a `deny` key.
+- Fix the delegate's native tools losing path-like environment variables on
+  Windows: 0.1.0 exported `MSYS_NO_PATHCONV=1`, which Cursor passed on to the
+  commands it ran, so e.g. `git` no longer saw `GIT_CONFIG_GLOBAL`. The task
+  argument is now protected with `MSYS2_ARG_CONV_EXCL`, which a preload
+  (`scripts/cursor-preload.js`, always loaded with the Windows bundle) removes
+  inside Cursor before any command runs.
+- `/cursor:setup` drives the same script, so it checks exactly what a
+  delegation will hit.
+- `tests/run.sh`: hermetic tests with a fake `cursor-agent`.
+
 ## 0.1.0 — 2026-09-30
 
 First release, verified on Cursor Agent CLI 2026.09.26 and 2026.09.28

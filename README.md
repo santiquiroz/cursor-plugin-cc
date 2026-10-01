@@ -129,21 +129,32 @@ lane split, WIP caps and the fallback chain are in
 
 ## What the forwarder actually runs
 
-Simplified (Windows bundle shown; on macOS/Linux the launcher is `cursor-agent`):
+The subagent makes two Bash calls to `scripts/cursor-forward.sh`, which holds
+every deterministic step (tested with a fake `cursor-agent` in `tests/run.sh`):
 
 ```bash
-export CURSOR_CONFIG_DIR="$HOME/.cursor-rescue"      # plugin-owned cli-config.json with the deny rules
-TASK=$(cat <<'EOF_TASK'
+bash scripts/cursor-forward.sh preflight [--model <slug>] [--isolate|--no-isolate]
+bash scripts/cursor-forward.sh run --model <slug> [--read-only] [--continue] <<'CURSOR_TASK_<nonce>'
 <your task, verbatim>
-
-Constraints: work directly in this workspace ... Do not commit, push, switch branches or delete files ...
-EOF_TASK
-)
-MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" NO_OPEN_BROWSER=1 \
-timeout -k 10 540 "$VER/node.exe" [--require ~/.cursor-rescue/homedir-preload.js] "$VER/index.js" \
-  -p "$TASK" --output-format stream-json --trust --workspace "$(pwd -W)" --force --model auto \
-  [--mode ask] [--continue] </dev/null 2>&1 | <compact progress filter>
+CURSOR_TASK_<nonce>
 ```
+
+`preflight` finds the launcher, checks the deny rules, reads version, plan and
+sign-in with `cursor-agent about` (no agent turn) and picks the model (`auto`
+on the Free plan). `run` then executes, simplified for the Windows bundle (on
+macOS/Linux the launcher is `cursor-agent`):
+
+```bash
+CURSOR_CONFIG_DIR=~/.cursor-rescue MSYS2_ARG_CONV_EXCL='*' GIT_TERMINAL_PROMPT=0 \
+GIT_SSH_COMMAND="ssh -o BatchMode=yes" NO_OPEN_BROWSER=1 \
+timeout -k 10 540 "$VER/node.exe" --require scripts/cursor-preload.js "$VER/index.js" \
+  -p "<task + constraints>" --output-format stream-json --trust --workspace "<repo>" \
+  --force --model auto [--mode ask] [--continue] </dev/null 2>&1 | node scripts/stream-filter.js
+```
+
+and appends one `[cursor-rescue] WARNING: <what changed> — review before your
+next git command` line when the run moved `HEAD`, switched branch, changed the
+stash list, the git config or the hooks (it reports, it never reverts).
 
 ## Safety model
 
@@ -225,14 +236,20 @@ derives from the home directory).
 | Imported Claude Code hooks run through PowerShell on Windows and block tool calls when they fail | homedir preload isolates Cursor from `~/.claude` |
 | No print-timeout; text output is printed only at the end, so a timeout loses everything | `timeout -k 10 540` + `stream-json` through a progress filter |
 | `-p` with an open stdin pipe can wait forever | stdin is closed with `</dev/null` |
-| Git Bash rewrites arguments that look like POSIX paths, so a task starting with `/` would reach Cursor mangled | `MSYS_NO_PATHCONV=1`, with Windows-style paths built by `pwd -W` / `cygpath -w` |
+| Git Bash rewrites arguments that look like POSIX paths, so a task starting with `/` would reach Cursor mangled | `MSYS2_ARG_CONV_EXCL='*'` with native paths built by `cygpath -m`. Not `MSYS_NO_PATHCONV=1`: that also stops converting path-like environment variables, and inherited by the delegate it left native `git` blind to `GIT_CONFIG_GLOBAL` (caught by the tests). The preload removes the variable inside Cursor, so the delegate's own commands convert paths normally (verified) |
 | Ask mode refuses edits and rejected shell commands | `--read-only` maps to ask mode; paste diffs into the task |
+| A delegate can commit, switch branch or stash despite the prompt when a deny rule misses a spelling | `run` compares `HEAD`, branch, stash, git config and hooks before and after and prints a `WARNING` line per change |
+| The whole task travels as one command-line argument; Windows caps a command line at 32767 characters | tasks over 30000 characters are refused with exit 64 before anything runs |
 
 ## What's in the plugin
 
 | Piece | Purpose |
 |---|---|
-| `agents/cursor-rescue.md` | Thin forwarder subagent — one `cursor-agent -p` call, compact output |
+| `agents/cursor-rescue.md` | Thin forwarder subagent — `preflight` and `run` calls, output returned as-is |
+| `scripts/cursor-forward.sh` | Launcher discovery, deny gate, plan/model preflight, isolation, timeout, git-change warnings |
+| `scripts/stream-filter.js` | `stream-json` → compact progress log |
+| `scripts/cursor-preload.js` | Windows bundle only (`node --require`): clears the MSYS variable inside Cursor and, when isolating, points `os.homedir()` away from `~/.claude` |
+| `tests/run.sh` | Hermetic tests with a fake `cursor-agent` — `bash tests/run.sh` |
 | `/cursor:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--read-only`, `--isolate`) |
 | `/cursor:setup` | Locate CLI, version, sign-in, plugin config dir + deny probe, isolation default, models |
 | `docs/cli-config.json` | The plugin-owned config with the deny rules |

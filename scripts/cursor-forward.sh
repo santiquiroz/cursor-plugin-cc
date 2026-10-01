@@ -2,6 +2,7 @@
 # Usage:
 #   cursor-forward.sh preflight [--model <slug>] [--isolate|--no-isolate]
 #   cursor-forward.sh run [--model <slug>] [--read-only] [--continue] [--isolate|--no-isolate] <task on stdin>
+#   cursor-forward.sh models
 set -u
 
 readonly USAGE_EXIT=64
@@ -51,7 +52,7 @@ parse_options() {
   done
 }
 
-# Git Bash runs native programs with MSYS_NO_PATHCONV=1 here, so every path must already be native.
+# Git Bash leaves arguments unconverted here (MSYS2_ARG_CONV_EXCL), so every path passed must already be native.
 native_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
@@ -128,14 +129,15 @@ launcher_argv() {
     printf '%s\0' "$AGENT_BIN"
     return 0
   fi
-  printf '%s\0' "$NODE_BIN"
-  isolation_active && printf '%s\0' --require "$(native_path "$SCRIPT_DIR/homedir-preload.js")"
-  printf '%s\0' "$INDEX_JS"
+  printf '%s\0' "$NODE_BIN" --require "$(native_path "$SCRIPT_DIR/cursor-preload.js")" "$INDEX_JS"
 }
 
 # CURSOR_CONFIG_DIR keeps the deny rules and any --model out of the user's own ~/.cursor/cli-config.json.
+# MSYS2_ARG_CONV_EXCL stops Git Bash from rewriting a task that starts with "/" into a Windows path;
+# unlike MSYS_NO_PATHCONV it keeps converting path-like environment variables (GIT_CONFIG_GLOBAL...).
 cursor_env() {
-  export CURSOR_CONFIG_DIR=$CONFIG_DIR MSYS_NO_PATHCONV=1
+  unset MSYS_NO_PATHCONV
+  export CURSOR_CONFIG_DIR=$CONFIG_DIR MSYS2_ARG_CONV_EXCL='*'
   isolation_active || return 0
   mkdir -p "$CONFIG_DIR/home"
   export CURSOR_RESCUE_FAKE_HOME
@@ -186,6 +188,11 @@ preflight() {
   print_isolation
 }
 
+list_models() {
+  require_launcher || return
+  run_cursor models 2>&1
+}
+
 timeout_argv() {
   local seconds=${CURSOR_RESCUE_TIMEOUT:-540} bin
   if bin=$(command -v timeout || command -v gtimeout); then printf '%s\0' "$bin" -k 10 "$seconds"; return 0; fi
@@ -194,7 +201,7 @@ timeout_argv() {
 
 filter_output() {
   if [ -n "$NODE_BIN" ]; then
-    MSYS_NO_PATHCONV=1 "$NODE_BIN" "$(native_path "$SCRIPT_DIR/stream-filter.js")"
+    "$NODE_BIN" "$(native_path "$SCRIPT_DIR/stream-filter.js")"
   else
     cat
   fi
@@ -328,7 +335,8 @@ main() {
   case $command in
     preflight) parse_options "$@"; preflight ;;
     run) parse_options "$@"; run_task ;;
-    *) usage_error "usage: cursor-forward.sh preflight|run [options]" ;;
+    models) list_models ;;
+    *) usage_error "usage: cursor-forward.sh preflight|run|models [options]" ;;
   esac
 }
 
