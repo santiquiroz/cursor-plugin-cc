@@ -1,6 +1,6 @@
 ---
 name: cursor-rescue
-description: Proactively use as an extra agentic lane on Cursor's own quota — bounded coding tasks (a spec file, a rename, boilerplate, one build fix) when the other delegates are out of quota or busy, and read-only second opinions (`--read-only` runs Cursor's ask mode, which cannot edit files). Forwards to Cursor Agent CLI (`cursor-agent`) in headless print mode; the delegate is AGENTIC — it reads and edits files and runs commands in the repo itself, under a plugin-owned config dir whose deny rules block push, reset, checkout, commit, file deletion and wrapper shells. On Cursor's Free plan only the `auto` model runs and turns are slow. Do not use for tasks where the WHY lives in the caller's conversation — domain logic, business rules and architecture decisions stay with the main thread.
+description: Proactively use as an extra agentic lane on Cursor's own quota — bounded coding tasks (a spec file, a rename, boilerplate, one build fix) when the other delegates are out of quota or busy, and read-only second opinions (`--read-only` runs Cursor's ask mode, which cannot edit files). Forwards to Cursor Agent CLI (`cursor-agent`) in headless print mode; the delegate is AGENTIC — it reads and edits files and runs commands in the repo itself, under a plugin-owned config dir whose deny rules block push, reset, checkout, commit, common file-deletion commands and wrapper shells. On Cursor's Free plan only the `auto` model runs and turns are slow. Do not use for tasks where the WHY lives in the caller's conversation — domain logic, business rules and architecture decisions stay with the main thread.
 model: sonnet
 tools: Bash
 ---
@@ -27,7 +27,7 @@ elif command -v cursor-agent >/dev/null 2>&1; then NODE=$(command -v node); CA=(
 elif [ -x "$HOME/.local/bin/cursor-agent" ]; then NODE=$(command -v node); CA=("$HOME/.local/bin/cursor-agent")
 else echo "cursor-rescue: cursor-agent not found — run /cursor:setup"; exit 127; fi
 export CURSOR_CONFIG_DIR="$HOME/.cursor-rescue"
-grep -q '"deny"' "$CURSOR_CONFIG_DIR/cli-config.json" 2>/dev/null || { echo "cursor-rescue: no permissions.deny block in $CURSOR_CONFIG_DIR/cli-config.json — refusing to run with --force. Run /cursor:setup first."; exit 78; }
+for RULE in 'Shell(git push)' 'Shell(git checkout)' 'Shell(rm)' 'Shell(bash)' 'Shell(powershell)' 'Write(**/.git/**)'; do grep -qF "\"$RULE\"" "$CURSOR_CONFIG_DIR/cli-config.json" 2>/dev/null || { echo "cursor-rescue: deny rule $RULE missing from $CURSOR_CONFIG_DIR/cli-config.json — refusing to run with --force. Run /cursor:setup first."; exit 78; }; done
 ISOLATE=$(cat "$CURSOR_CONFIG_DIR/isolate" 2>/dev/null || echo off)
 if [ "$ISOLATE" = on ] && [ "$NODE" = "${VER}node.exe" ]; then
   PRELOAD="$CURSOR_CONFIG_DIR/homedir-preload.js"
@@ -56,13 +56,13 @@ printf '%s\n' "$ABOUT" | grep -E 'CLI Version|Subscription Tier|User Email'
 ## Block 3 — forward
 
 ```bash
-TASK=$(cat <<'EOF_TASK'
+TASK=$(cat <<'EOF_CURSOR_TASK_9f3a'
 <caller's task text, verbatim>
 
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, agy, gemini, ollama, cursor-agent). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
-EOF_TASK
+EOF_CURSOR_TASK_9f3a
 )
-FILTER=$(cat <<'EOF_JS'
+FILTER=$(cat <<'EOF_CURSOR_JS_9f3a'
 const rl = require("readline").createInterface({ input: process.stdin });
 const one = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "..." : s; };
 const failure = (r) => {
@@ -82,8 +82,9 @@ rl.on("line", (line) => {
     const text = ((o.message || {}).content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
     if (text) console.log(text);
   } else if (o.type === "tool_call") {
-    const kind = Object.keys(o.tool_call || {})[0] || "tool";
-    const body = o.tool_call[kind] || {};
+    const calls = o.tool_call || {};
+    const kind = Object.keys(calls)[0] || "tool";
+    const body = calls[kind] || {};
     const args = body.args || {};
     const name = kind.replace(/ToolCall$/, "");
     const target = args.command || args.path || args.pattern || args.globPattern || args.query || args.toolName || Object.values(args).find((v) => typeof v === "string");
@@ -93,9 +94,9 @@ rl.on("line", (line) => {
     console.log("[cursor-rescue] " + (o.is_error ? "error" : "done") + " in " + Math.round((o.duration_ms || 0) / 1000) + "s, session " + o.session_id);
   }
 });
-EOF_JS
+EOF_CURSOR_JS_9f3a
 )
-TO=(); T=$(command -v timeout || command -v gtimeout) && TO=("$T" -k 10 540)
+TO=(); if T=$(command -v timeout || command -v gtimeout); then TO=("$T" -k 10 540); elif command -v perl >/dev/null 2>&1; then TO=(perl -e 'alarm shift; exec @ARGV' 540); fi
 if [ -n "$NODE" ]; then FMT=stream-json; else FMT=text; fi
 WS=$(pwd -W 2>/dev/null || pwd)
 MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" NO_OPEN_BROWSER=1 \
@@ -107,11 +108,11 @@ MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" 
   --model "$MODEL" \
   [--mode ask] [--continue] </dev/null 2>&1 | if [ -n "$NODE" ]; then MSYS_NO_PATHCONV=1 "$NODE" -e "$FILTER"; else cat; fi
 RC=${PIPESTATUS[0]}
-[ "$RC" = 124 ] && echo "[cursor-rescue] timed out after 9 minutes — edits made until then are in the working tree"
+case "$RC" in 124|137|142) echo "[cursor-rescue] timed out after 9 minutes — edits made until then are in the working tree";; esac
 echo "[cursor-rescue] exit $RC"
 ```
 
-- Neither heredoc delimiter (`EOF_TASK`, `EOF_JS`) may occur in the task text. If the task contains one, rename that delimiter (e.g. `EOF_TASK_7f3a`). A task line equal to the delimiter would end the heredoc early and run the rest of the task as shell.
+- Neither heredoc delimiter (`EOF_CURSOR_TASK_9f3a`, `EOF_CURSOR_JS_9f3a`) may occur in the task text. If the task contains one, rename that delimiter (e.g. `EOF_CURSOR_TASK_b21c`). A task line equal to the delimiter would end the heredoc early and run the rest of the task as shell.
 - The bracketed placeholders are optional flags: drop the ones the request did not ask for. Never pass literal brackets.
 - `--read-only` in the request → add `--mode ask`, remove `--read-only` from the task text, and replace the first sentence of the constraints paragraph with `This is a read-only run: do not edit files; report findings and proposed changes as text.` Ask mode refuses file edits and, in testing, rejected shell commands — the task text must carry the code or diff to review.
 - If the request clearly continues prior Cursor work in this repo ("continue", "keep going", "resume"), add `--continue` instead of starting fresh.
@@ -119,7 +120,7 @@ echo "[cursor-rescue] exit $RC"
 - `--trust` and `--workspace "$WS"` register the repo without the interactive trust prompt. If the task targets another directory, `cd` there first.
 - `MSYS_NO_PATHCONV=1`: in Git Bash (the Bash tool on Windows) MSYS rewrites any argument that looks like a POSIX path before a native program sees it, so a task starting with `/` would reach Cursor as `C:/Program Files/Git/...`. With conversion off, every path passed must already be Windows-style — hence `pwd -W` for the workspace and `cygpath -w` for the preload.
 - `</dev/null` closes stdin: with an open pipe `cursor-agent -p` can wait on stdin forever (seen in testing).
-- `timeout -k 10 540` keeps the run under the Bash tool ceiling; `cursor-agent` has no print-timeout of its own. The `stream-json` filter prints assistant text, one `>` line per tool call and one `x` line per rejected or denied call as they happen, so a run cut by the timeout still shows its progress. Without Node (rare: macOS/Linux with no `node` on PATH) the run falls back to plain text, which prints only at the end.
+- `timeout -k 10 540` keeps the run under the Bash tool ceiling; `cursor-agent` has no print-timeout of its own. The `stream-json` filter prints assistant text, one `>` line per tool call and one `x` line per rejected or denied call as they happen, so a run cut by the timeout still shows its progress. Without `timeout`/`gtimeout` (stock macOS) the cap falls back to `perl -e 'alarm ...'`. Without Node (rare: macOS/Linux with no `node` on PATH) the run falls back to plain text, which prints only at the end.
 - `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` make git fail fast instead of hanging on a credential prompt; `NO_OPEN_BROWSER=1` stops a login flow from opening a browser.
 - Preserve the caller's task text as-is. Do not add commentary, hedging or extra instructions beyond the constraints paragraph.
 - Do not inspect the repository, read files, grep, poll, or do follow-up work of your own.

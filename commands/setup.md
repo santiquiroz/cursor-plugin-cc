@@ -78,7 +78,7 @@ PY
 
 - Windows and at least one plugin with hooks → write the word `on` to `$HOME/.cursor-rescue/isolate` and say why in one sentence. Isolated runs load a three-line preload into Cursor's own Node process that makes `os.homedir()` return `$HOME/.cursor-rescue/home`, so Cursor no longer finds `~/.claude` (nor `~/.cursor` chats and MCP servers). Environment variables are untouched, so the commands the delegate runs keep the real `USERPROFILE`, `HOME` and `APPDATA` — git, SSH, NuGet, npm and the sign-in (`%APPDATA%\Cursor\auth.json`) keep working (verified).
 - No plugins with hooks, or not Windows → write `off`. On macOS/Linux the hooks run under bash as intended, and the preload is not used there: the launcher is a shell script the subagent cannot add `--require` to, and the sign-in path derives from the home directory.
-- The caller can override per run with `--isolate` / `--no-isolate`.
+- On Windows the caller can override per run with `--isolate` / `--no-isolate`; elsewhere the flags are ignored.
 
 Step 7 — Models
 

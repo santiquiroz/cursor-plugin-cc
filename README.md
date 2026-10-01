@@ -173,11 +173,11 @@ The deny list ([docs/cli-config.json](docs/cli-config.json)):
 
 | Rules | Blocks |
 |---|---|
-| `Shell(git push)`, `reset`, `clean`, `checkout`, `switch`, `restore`, `stash`, `rebase`, `commit`, `rm`, `worktree`, `config` | shared state, discarding work, history changes |
-| `Shell(rm)`, `rmdir`, `del`, `erase`, `rd`, `ri`, `Remove-Item` | deleting files |
+| `Shell(git push)`, `reset`, `clean`, `checkout`, `switch`, `restore`, `stash`, `rebase`, `commit`, `rm`, `worktree`, `config`, `filter-branch`, `filter-repo`, `update-ref`, `reflog`, `branch -D/-d`, `tag -d`, `gc`, `prune`, and git global options `-C`, `-c`, `--git-dir`, `--work-tree` | shared state, discarding work, history changes |
+| `Shell(rm)`, `rmdir`, `del`, `erase`, `rd`, `ri`, `Remove-Item`, `unlink`, `shred` | deleting files |
 | `Shell(bash)`, `sh`, `zsh`, `fish`, `dash`, `powershell`, `pwsh`, `cmd`, `wsl`, `env`, `xargs`, `Start-Process` | wrapper shells that hide the commands above |
 | `Shell(sudo)`, `runas` | privilege escalation |
-| `Shell(claude)`, `codex`, `copilot`, `agy`, `gemini`, `ollama`, `cursor-agent`, `agent` | recursive delegation to other AI CLIs |
+| `Shell(claude)`, `codex`, `copilot`, `agy`, `gemini`, `ollama`, `cursor-agent`, `agent`, `aider`, `opencode`, `amp`, `goose`, `qwen`, `crush` | recursive delegation to other AI CLIs |
 | `Write(**/.git/**)` | editing repository metadata |
 
 What this does **not** cover — know it before delegating:
@@ -190,6 +190,7 @@ What this does **not** cover — know it before delegating:
   untrusted content.
 - `cursor-agent` also merges permission rules from `~/.claude/settings.json`
   and `<repo>/.claude/settings.json` into its own (it reads them on start).
+- Git aliases already defined in your git config run under their alias name, so an alias that pushes is not caught by `Shell(git push)`; package runners such as `npx` can start any tool (including another AI CLI) behind an allowed first command. `find … -delete` and script-based deletion are not denied either.
 
 ### Isolation from your Claude Code setup (Windows)
 
