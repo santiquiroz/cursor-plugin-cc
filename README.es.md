@@ -135,21 +135,32 @@ la división de carriles, los topes de WIP y la cadena de fallback están en
 
 ## Qué ejecuta realmente el forwarder
 
-Simplificado (se muestra el bundle de Windows; en macOS/Linux el launcher es `cursor-agent`):
+El subagente hace dos llamadas Bash a `scripts/cursor-forward.sh`, que concentra
+cada paso determinista (probado con un `cursor-agent` falso en `tests/run.sh`):
 
 ```bash
-export CURSOR_CONFIG_DIR="$HOME/.cursor-rescue"      # plugin-owned cli-config.json with the deny rules
-TASK=$(cat <<'EOF_TASK'
+bash scripts/cursor-forward.sh preflight [--model <slug>] [--isolate|--no-isolate]
+bash scripts/cursor-forward.sh run --model <slug> [--read-only] [--continue] <<'CURSOR_TASK_<nonce>'
 <your task, verbatim>
-
-Constraints: work directly in this workspace ... Do not commit, push, switch branches or delete files ...
-EOF_TASK
-)
-MSYS_NO_PATHCONV=1 GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" NO_OPEN_BROWSER=1 \
-timeout -k 10 540 "$VER/node.exe" [--require ~/.cursor-rescue/homedir-preload.js] "$VER/index.js" \
-  -p "$TASK" --output-format stream-json --trust --workspace "$(pwd -W)" --force --model auto \
-  [--mode ask] [--continue] </dev/null 2>&1 | <compact progress filter>
+CURSOR_TASK_<nonce>
 ```
+
+`preflight` encuentra el launcher, comprueba las reglas de denegación, lee
+versión, plan e inicio de sesión con `cursor-agent about` (sin turno de agente)
+y elige el modelo (`auto` en el plan Free). `run` luego ejecuta, simplificado
+para el bundle de Windows (en macOS/Linux el launcher es `cursor-agent`):
+
+```bash
+CURSOR_CONFIG_DIR=~/.cursor-rescue MSYS2_ARG_CONV_EXCL='*' GIT_TERMINAL_PROMPT=0 \
+GIT_SSH_COMMAND="ssh -o BatchMode=yes" NO_OPEN_BROWSER=1 \
+timeout -k 10 540 "$VER/node.exe" --require scripts/cursor-preload.js "$VER/index.js" \
+  -p "<task + constraints>" --output-format stream-json --trust --workspace "<repo>" \
+  --force --model auto [--mode ask] [--continue] </dev/null 2>&1 | node scripts/stream-filter.js
+```
+
+y agrega una línea `[cursor-rescue] WARNING: <what changed> — review before your
+next git command` cuando la ejecución movió `HEAD`, cambió de rama, alteró la
+lista de stash, el git config o los hooks (informa, nunca revierte).
 
 ## Modelo de seguridad
 
@@ -242,14 +253,20 @@ de inicio de sesión ahí se deriva del directorio home).
 | Los hooks importados de Claude Code corren a través de PowerShell en Windows y bloquean las llamadas a herramientas cuando fallan | el preload de homedir aísla a Cursor de `~/.claude` |
 | Sin print-timeout; la salida de texto se imprime solo al final, así que un timeout lo pierde todo | `timeout -k 10 540` + `stream-json` a través de un filtro de progreso |
 | `-p` con un pipe de stdin abierto puede esperar para siempre | stdin se cierra con `</dev/null` |
-| Git Bash reescribe argumentos que parecen rutas POSIX, así que una tarea que empieza con `/` llegaría a Cursor alterada | `MSYS_NO_PATHCONV=1`, con rutas estilo Windows construidas por `pwd -W` / `cygpath -w` |
-| El modo ask rechaza ediciones y comandos de shell | `--read-only` mapea a modo ask; pega diffs en la tarea |
+| Git Bash reescribe argumentos que parecen rutas POSIX, así que una tarea que empieza con `/` llegaría a Cursor alterada | `MSYS2_ARG_CONV_EXCL='*'` con rutas nativas construidas por `cygpath -m`. No `MSYS_NO_PATHCONV=1`: eso también deja de convertir variables de entorno con forma de ruta, y al heredarlo el delegado dejó al `git` nativo ciego a `GIT_CONFIG_GLOBAL` (lo atraparon los tests). El preload quita la variable dentro de Cursor, así que los comandos propios del delegado convierten rutas con normalidad (verificado) |
+| El modo ask rechaza ediciones y rechazó comandos de shell | `--read-only` mapea a modo ask; pega diffs en la tarea |
+| Un delegado puede hacer commit, cambiar de rama o stash pese al prompt cuando una regla de denegación no atrapa una ortografía | `run` compara `HEAD`, rama, stash, git config y hooks antes y después e imprime una línea `WARNING` por cada cambio |
+| Toda la tarea viaja como un solo argumento de línea de comandos; Windows limita una línea de comandos a 32767 caracteres | las tareas de más de 30000 caracteres se rechazan con exit 64 antes de que corra nada |
 
 ## Qué hay en el plugin
 
 | Pieza | Propósito |
 |---|---|
-| `agents/cursor-rescue.md` | Subagente forwarder delgado — una llamada a `cursor-agent -p`, salida compacta |
+| `agents/cursor-rescue.md` | Subagente forwarder delgado — llamadas `preflight` y `run`, salida devuelta tal cual |
+| `scripts/cursor-forward.sh` | Descubrimiento del launcher, puerta de denegación, preflight de plan/modelo, aislamiento, timeout, avisos de cambio de git |
+| `scripts/stream-filter.js` | `stream-json` → log de progreso compacto |
+| `scripts/cursor-preload.js` | Solo bundle de Windows (`node --require`): limpia la variable MSYS dentro de Cursor y, al aislar, apunta `os.homedir()` lejos de `~/.claude` |
+| `tests/run.sh` | Tests herméticos con un `cursor-agent` falso — `bash tests/run.sh` |
 | `/cursor:rescue` | Delega una tarea de forma explícita (`--background`, `--wait`, `--model`, `--read-only`, `--isolate`) |
 | `/cursor:setup` | Localiza el CLI, versión, inicio de sesión, directorio de config del plugin + sonda de denegación, valor por defecto de aislamiento, modelos |
 | `docs/cli-config.json` | La config propia del plugin con las reglas de denegación |
