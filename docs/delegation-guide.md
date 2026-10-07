@@ -1,41 +1,44 @@
-# Multi-Agent Delegation Guide
+# Delegation Guide
 
-How to make Claude Code delegate work to Cursor Agent CLI (this plugin) as an
-extra agentic lane next to whatever other delegates you run — so the main
-Claude thread stays focused on the work only it can do. Claude Code stays the
-orchestrator.
+How to make Claude Code delegate work to Cursor Agent CLI (this plugin),
+so the main thread stays focused on the work only it can do. Claude Code
+stays the orchestrator.
 
-## Which setup do you have?
+## What Cursor is good for
 
-- **Cursor next to other lanes** (e.g. a reasoning delegate such as the codex
-  plugin, a mechanical one such as the copilot plugin): Cursor absorbs bounded
-  tasks when those lanes are out of quota or busy, and gives read-only second
-  opinions.
-- **Cursor alone**: Cursor takes every delegable bounded task. Keep tasks
-  small, especially on the Free plan, where only `auto` runs and turns are
-  slow.
+Bounded, fully-specified tasks — work the delegate can finish without
+asking why:
 
-Everything on the never-delegate list stays inline with Claude in both cases.
+- One spec file, a rename, boilerplate, one build fix.
+- Read-only second opinions: `--read-only` runs Cursor's ask mode, which
+  refuses file edits and, in testing, rejected shell commands too — so
+  paste the diff or code into the task instead of asking Cursor to run
+  `git diff` itself.
 
-## The core split
+Never delegate: domain logic, business rules, architecture decisions —
+anything where the WHY lives in your conversation stays with the main
+thread.
 
-| Lane | Owns | Examples |
-|---|---|---|
-| **Reasoning delegate** (e.g. Codex) | Deep diagnosis, multi-step build fixing, architecture-adjacent code | Complex build errors after a failed fix, multi-file refactors changing control flow |
-| **Cursor (this plugin)** | Bounded agentic tasks on Cursor's quota; read-only second opinions | One spec file, a rename, boilerplate, one build fix; `--read-only` review of a pasted diff |
-| **Mechanical delegate** (e.g. Copilot) | Purely mechanical, zero-domain-context work | CRUD/mapping specs, renames across 3+ files, dead-code cleanup |
-| **Keep inline (never delegate)** | Tasks where the WHY lives in your conversation | Domain logic, business rules, architecture and feature design |
+Rule of thumb: if the delegate needs to understand *why*, keep it inline.
+If it is bounded and fully specified, delegate it.
 
-Rule of thumb: if the delegate needs to understand *why*, keep it inline. If
-it is bounded and fully specified, delegate it.
+## Know the Free plan limits
+
+- Only the `auto` model runs — any named model fails. The subagent
+  switches to `auto` on its own and says so in the first line.
+- Turns are slow: in testing a trivial reply took 20–90 s.
+- Agent requests count against a monthly allowance, and the CLI exposes
+  no headless usage meter, so quota detection is reactive (see below).
+- Every run is capped at 9 minutes. A run with eight shell commands did
+  not finish in the cap during testing; one spec file did. Keep tasks
+  small: one deliverable per run.
 
 ## Writing the task
 
 - Self-contained: file paths, signatures, expected behaviour, acceptance
   checks (the exact test command to run). The delegate does not see your
   conversation.
-- One deliverable per run. A Free-plan run with eight shell commands did not
-  finish in the 9-minute cap during testing; one spec file did.
+- One deliverable per run.
 - For `--read-only`, paste the code or the diff into the task: ask mode
   refuses edits and rejected shell commands in testing, so it cannot run
   `git diff` itself.
@@ -49,10 +52,10 @@ Claude: writes SomeHandler (domain logic — inline, never delegated)
 Claude: continues with the next task while delegations run
 ```
 
-- WIP cap: 3–5 concurrent background delegations across all lanes. Never run
-  two delegates on the same files at the same time.
-- Kill-switch: after 3 stuck or failed iterations on the same task, stop
-  retrying that lane; hand the task to another lane once or take it inline.
+- WIP cap: 3–5 concurrent background runs. Never run two of them on the
+  same files at the same time.
+- Kill-switch: after 3 stuck or failed attempts on the same task, stop
+  retrying and take it inline.
 
 ## Safety rules
 
@@ -68,22 +71,16 @@ Claude: continues with the next task while delegations run
   text from strangers): web tools and network commands are available to the
   delegate.
 
-## Quota fallback chain
+## Quota and sign-in errors
 
 **Detection:** the subagent prints `[cursor-rescue] Cursor quota or plan
 limit hit` when the output mentions a usage or rate limit, `quota`, `429`, or
 a plan allowance being used up. Sign-in errors ask for `cursor-agent login`.
 
-1. **Named model on the Free plan** → the subagent runs `auto` instead and
-   says so in the first line. Nothing to do.
-2. **Cursor quota or plan limit hit** → nothing more runs on Cursor this
-   period. Hand the task to another lane once if it fits, otherwise do it
-   inline. Never retry in a loop.
-3. **Every lane exhausted** → stop auto-delegating for the rest of the
-   session, handle everything inline, and mention it once.
-
-Tell the user in one line when a fallback happened — which lane failed and
-which one picked the task up, or that Claude took over inline.
+- **Named model on the Free plan** → the subagent runs `auto` instead and
+  says so in the first line. Nothing to do.
+- **`[cursor-rescue] Cursor quota or plan limit hit`, or a sign-in
+  error** → stop, do not retry, and tell the user in one line.
 
 ## Second opinions, not second drafts
 
@@ -91,3 +88,9 @@ Use `--read-only` when a tricky change or an ambiguous diagnosis benefits
 from an independent pass. Feed it the same self-contained contract and the
 code or diff, compare the answer with your own, and reconcile in the main
 thread.
+
+## Using it with other delegates
+
+If you run several delegation plugins, the order between them is yours to
+define in your own `CLAUDE.md`. This plugin does not assume any other
+delegate exists.

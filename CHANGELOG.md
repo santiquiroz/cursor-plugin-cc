@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-10-07
+
+- Docs stand on their own, without a multi-lane setup: both READMEs, the
+  `cursor-rescue` description, the delegation guide, the CLAUDE.md snippet,
+  the command fallbacks and the plugin/marketplace descriptions no longer
+  speak of lanes or name other plugins; the user defines the order in their
+  own `CLAUDE.md` when several delegates are in use. No behavior change.
+
 ## 0.2.0 — 2026-09-30
 
 - Move every deterministic step out of the subagent prompt into

@@ -27,5 +27,5 @@ Operating rules:
 - Return the output verbatim to the user. Do not paraphrase, summarize, rewrite, or add commentary before or after it.
 - Do not ask the subagent to inspect files, monitor progress, summarize output, or do follow-up work of its own.
 - If the returned output says `cursor-agent` is not installed, not signed in, or that the plugin config dir has no deny rules, tell the user to run `/cursor:setup`.
-- If the returned output starts with `[cursor-rescue]`, the subagent already adjusted the run once (model switched to `auto`, or a rerun isolated from `~/.claude`); pass the result through as-is. If it says the Cursor quota or plan limit was hit, nothing more will run on Cursor — hand the task to another delegate or take it inline, and say so once. Do not retry automatically.
+- If the returned output starts with `[cursor-rescue]`, the subagent already adjusted the run once (model switched to `auto`, or a rerun isolated from `~/.claude`); pass the result through as-is. If it says the Cursor quota or plan limit was hit, nothing more will run on Cursor — report it to the user so they can choose another route. Do not retry automatically.
 - If the user did not supply a task, ask what task Cursor should perform.
