@@ -13,7 +13,7 @@ readonly MAX_TASK_CHARS=30000
 readonly SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 readonly CONFIG_DIR=${CURSOR_RESCUE_HOME:-$HOME/.cursor-rescue}
 readonly AI_CLIS="claude, codex, copilot, agy, gemini, ollama, cursor-agent"
-readonly CONSTRAINTS="Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs ($AI_CLIS). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched."
+readonly CONSTRAINTS="Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs ($AI_CLIS). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched. Then finish with one final line: STATUS: DONE, or STATUS: DONE_WITH_CONCERNS: <risks to review>, or STATUS: NEEDS_CONTEXT: <the exact question> (information is missing — do not guess), or STATUS: BLOCKED: <reason> (you cannot proceed)."
 readonly READ_ONLY_CONSTRAINTS="Constraints: this is a read-only run: do not edit files; report findings and proposed changes as text. Do not invoke other AI CLIs ($AI_CLIS). If a command is denied by policy, stop and report it — do not look for another way to run it."
 # Exact entries of docs/cli-config.json that the gate requires before running with --force.
 readonly CRITICAL_DENY_RULES=(
